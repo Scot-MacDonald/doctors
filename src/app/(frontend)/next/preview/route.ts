@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { draftMode } from "next/headers";
-import { redirect } from "next/navigation";
 import { getPayload } from "payload";
 import configPromise from "@payload-config";
 import { CollectionSlug, TypedLocale } from "payload";
 
 const payloadToken = "payload-token";
 
-export async function GET(req: NextRequest): Promise<Response> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   const payload = await getPayload({ config: configPromise });
   const token = req.cookies.get(payloadToken)?.value;
   const { searchParams } = new URL(req.url);
@@ -17,23 +16,29 @@ export async function GET(req: NextRequest): Promise<Response> {
   const slug = searchParams.get("slug");
   const previewSecret = searchParams.get("previewSecret");
 
+  const draft = await draftMode();
+
   if (previewSecret) {
+    draft.disable();
     return NextResponse.json("You are not allowed to preview this page", {
       status: 403,
     });
   }
 
   if (!path || !collection || !slug) {
+    draft.disable();
     return NextResponse.json("Missing required parameters", { status: 400 });
   }
 
   if (!token) {
+    draft.disable();
     return NextResponse.json("You are not allowed to preview this page", {
       status: 403,
     });
   }
 
   if (!path.startsWith("/")) {
+    draft.disable();
     return NextResponse.json(
       "This endpoint can only be used for internal previews",
       { status: 500 }
@@ -46,8 +51,6 @@ export async function GET(req: NextRequest): Promise<Response> {
   } catch (error) {
     payload.logger.error("Error verifying token for live preview:", error);
   }
-
-  const draft = await draftMode();
 
   if (!user) {
     draft.disable();
@@ -65,12 +68,16 @@ export async function GET(req: NextRequest): Promise<Response> {
     });
 
     if (!docs.docs.length) {
+      draft.disable();
       return NextResponse.json("Document not found", { status: 404 });
     }
   } catch (error) {
     payload.logger.error("Error verifying document for live preview:", error);
+    draft.disable();
+    return NextResponse.json("Error fetching document", { status: 500 });
   }
 
+  // Enable draft mode and redirect
   draft.enable();
-  redirect(path);
+  return NextResponse.redirect(path);
 }
